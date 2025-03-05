@@ -15,7 +15,6 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 // Configure DbContext
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
-
 builder.Services.AddScoped<DbContext, ApplicationDbContext>();
 
 // Configure Identity (User & Role management)
