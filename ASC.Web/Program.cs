@@ -8,40 +8,51 @@ using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Get connection string from appsettings.json
+// 🟢 Lấy chuỗi kết nối từ appsettings.json
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+    ?? throw new InvalidOperationException("⚠ Connection string 'DefaultConnection' not found.");
 
-// Configure DbContext
+// 🟢 Cấu hình DbContext
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
 builder.Services.AddScoped<DbContext, ApplicationDbContext>();
 
-// Configure Identity (User & Role management)
+// 🟢 Cấu hình Identity (Hỗ trợ quản lý user & role)
 builder.Services.AddIdentity<IdentityUser, IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
-// Register RoleManager
+// 🟢 Đăng ký RoleManager
 builder.Services.AddScoped<RoleManager<IdentityRole>>();
 
-// Configure AppSettings
+// 🟢 Cấu hình AppSettings
 builder.Services.Configure<ApplicationSettings>(
     builder.Configuration.GetSection("AppSettings"));
 
-// Register necessary services
+// 🟢 Đăng ký các dịch vụ cần thiết
 builder.Services.AddScoped<IIdentitySeed, IdentitySeed>();
 builder.Services.AddTransient<IEmailSender, AuthMessageSender>();
 builder.Services.AddTransient<ISmsSender, AuthMessageSender>();
 
-// Configure MVC & Razor Pages
+// 🟢 Cấu hình Session
+builder.Services.AddDistributedMemoryCache();  // ✅ Thêm hỗ trợ bộ nhớ cache
+builder.Services.AddSession();  // ✅ Thêm Session vào ứng dụng
+// 🟢 Cấu hình Session với thời gian timeout và cookie
+builder.Services.AddSession(options =>
+{
+    options.IdleTimeout = TimeSpan.FromMinutes(30);  // Thời gian session hết hạn sau 30 phút
+    options.Cookie.HttpOnly = true;  // Chỉ cho phép truy cập qua HTTP (bảo mật hơn)
+    options.Cookie.IsEssential = true;  // Bắt buộc lưu session ngay cả khi tắt cookie không cần thiết
+});
+
+// 🟢 Cấu hình MVC & Razor Pages
 builder.Services.AddControllersWithViews();
-builder.Services.AddRazorPages();
+builder.Services.AddRazorPages();  // ✅ Quan trọng: Thêm Razor Pages để tránh lỗi
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
 var app = builder.Build();
 
-// Middleware Pipeline (Request processing)
+// 🔵 Middleware Pipeline (Xử lý request)
 if (app.Environment.IsDevelopment())
 {
     app.UseMigrationsEndPoint();
@@ -55,29 +66,29 @@ else
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
+
+app.UseSession();  // ✅ Kích hoạt Session
 app.UseAuthorization();
 
-// Configure default route
+// 🔵 Cấu hình route mặc định
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Home}/{action=Index}/{id?}");
+
+// 🔵 Map Razor Pages (Quan trọng để tránh lỗi)
 app.MapRazorPages();
 
-// Initialize database and seed default data
-using (var scope = app.Services.CreateScope())
-{
-    var serviceProvider = scope.ServiceProvider;
-    var dbContext = serviceProvider.GetRequiredService<ApplicationDbContext>();
+// 🔵 Thực hiện seed data (tạo tài khoản mặc định)
+await using var scope = app.Services.CreateAsyncScope();
+var serviceProvider = scope.ServiceProvider;
+var storageSeed = serviceProvider.GetRequiredService<IIdentitySeed>();
 
-    // Perform Migration before seeding data
-    await dbContext.Database.MigrateAsync();
+await storageSeed.Seed(
+    serviceProvider.GetRequiredService<UserManager<IdentityUser>>(),
+    serviceProvider.GetRequiredService<RoleManager<IdentityRole>>(),
+    serviceProvider.GetRequiredService<IOptions<ApplicationSettings>>()
+);
+app.UseSession();  // ✅ Đảm bảo được gọi trước Authorization
+app.UseAuthorization();
 
-    var storageSeed = serviceProvider.GetRequiredService<IIdentitySeed>();
-    await storageSeed.Seed(
-        serviceProvider.GetRequiredService<UserManager<IdentityUser>>(),
-        serviceProvider.GetRequiredService<RoleManager<IdentityRole>>(),
-        serviceProvider.GetRequiredService<IOptions<ApplicationSettings>>()
-    );
-}
-
-await app.RunAsync();
+app.Run();
